@@ -18,6 +18,4 @@ venv.bak/
 
 # Project Specific
 logs/
-models/
-*.zip
 debug_shapes.py
