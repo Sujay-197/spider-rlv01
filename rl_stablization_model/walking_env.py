@@ -17,6 +17,7 @@ class HexapodWalkEnv(HexapodStabilizeEnv):
         
         # Target Velocity
         self.target_vel_x = 0.35
+        self.target_height = 0.25
         
         # Add Previous Action to observation (smoothing)
         # Old obs_dim = 49
@@ -95,7 +96,11 @@ class HexapodWalkEnv(HexapodStabilizeEnv):
         # Strongly penalize Roll and Pitch
         r_upright = math.exp(-5.0 * (abs(euler[0]) + abs(euler[1])))
         
-        # --- 3. Penalties ---
+        # --- 3. Height Reward --- 
+        # Encourage Torso to stay at target height
+        r_height = math.exp(-50.0 * (pos[2] - self.target_height)**2)
+        
+        # --- 4. Penalties ---
         # Drift (Y-axis velocity)
         p_drift = abs(lin_vel[1]) * 1.0
         
@@ -122,6 +127,9 @@ class HexapodWalkEnv(HexapodStabilizeEnv):
         # Usually Tracking + Energy penalty is enough.
         # If we really want to enforce legged motion, p_contact is key.
         
-        total_reward = r_tracking + r_upright + r_alive - p_drift - p_contact - p_energy
+        # Usually Tracking + Energy penalty is enough.
+        # If we really want to enforce legged motion, p_contact is key.
+        
+        total_reward = r_tracking + r_upright + r_alive + r_height - p_drift - p_contact - p_energy
         
         return total_reward

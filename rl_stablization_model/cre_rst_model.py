@@ -6,14 +6,13 @@ import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback
-from envs import HexapodStabilizeEnv
-from walking_env import HexapodWalkEnv
-from restabilize_env import HexapodRestabilizeEnv
+from stable_baselines3.common.monitor import Monitor
+from rst_env import HexapodReStabilizeEnv
 
 '''
-python rl_stablization_model/cre_st_model.py --mode train --timesteps k
-python rl_stablization_model/cre_st_model.py --mode enjoy --model_name str
-python rl_stablization_model/cre_st_model.py --mode check
+python rl_stablization_model/cre_rst_model.py --mode train --timesteps 1000000
+python rl_stablization_model/cre_rst_model.py --mode enjoy --model_name hexapod_ppo_restabilize
+python rl_stablization_model/cre_rst_model.py --mode check
 '''
 
 class TableLoggingCallback(BaseCallback):
@@ -41,28 +40,22 @@ class TableLoggingCallback(BaseCallback):
             elapsed_time = time.time() - self.start_time
             
             # Format step count with k notation
-            step_str = f"{self.n_calls/1000:.1f}k" if self.n_calls >= 1000 else str(self.n_calls)
+            step_str = f"{self.n_calls//1000}k" if self.n_calls >= 1000 else str(self.n_calls)
             
             print(f"{step_str:>10} | {avg_reward:>10.2f} | {'N/A':>10} | {elapsed_time:>10.1f}")
             
-            # Clear buffer after logging (optional: keep windowed average)
-            # For this request "epoch batch returns table", clearing makes sense to show progress specific to that batch.
+            # Clear buffer after logging
             self.episode_rewards = [] 
             
         return True
 
 def main():
-    parser = argparse.ArgumentParser(description="Hexapod PPO RL")
+    parser = argparse.ArgumentParser(description="Hexapod Restabilization PPO RL")
     parser.add_argument("--mode", type=str, required=True, choices=["train", "enjoy", "check"], help="train, enjoy, or check env")
-    parser.add_argument("--task", type=str, default="stabilize", choices=["stabilize", "walk", "restabilize"], help="Task to perform: stabilize, walk, or restabilize")
     parser.add_argument("--timesteps", type=int, default=100000, help="Total timesteps for training")
-    parser.add_argument("--model_name", type=str, default=None, help="Name of model to save/load (optional override)")
+    parser.add_argument("--model_name", type=str, default="hexapod_ppo_restabilize", help="Name of model to save/load")
     
     args = parser.parse_args()
-    
-    # Determine model name based on task if not provided
-    if args.model_name is None:
-        args.model_name = f"hexapod_ppo_{args.task}"
     
     models_dir = "models"
     log_dir = "logs"
@@ -74,33 +67,28 @@ def main():
         
     model_path = os.path.join(models_dir, args.model_name)
     
-    # Select Environment Class
-    if args.task == "walk":
-        EnvClass = HexapodWalkEnv
-    elif args.task == "restabilize":
-        EnvClass = HexapodRestabilizeEnv
-    else:
-        EnvClass = HexapodStabilizeEnv
+    # Use the new Restabilize Environment
+    EnvClass = HexapodReStabilizeEnv
     
     if args.mode == "check":
-        print(f"Checking environment for task: {args.task}...")
+        print(f"Checking environment for restabilize task...")
         env = EnvClass(render_mode=None)
         check_env(env)
         print("Environment check passed!")
         
     elif args.mode == "train":
-        print(f"Starting training for {args.task} with {args.timesteps} timesteps...")
+        print(f"Starting training for restabilize with {args.timesteps} timesteps...")
         # Wrap environment with Monitor to record episode statistics for reward logging
-        from stable_baselines3.common.monitor import Monitor
         env = EnvClass(render_mode=None)
         env = Monitor(env)
         
-        # Load existing model if available to continue training (optional, but good for phase 2 starting from scratch or stabilized?)
-        # For now, we start fresh for walking or maybe load stabilized weights?
-        # Typically PPO struggles to adapt a standing policy to walking without careful curriculum. 
-        # Let's start fresh for walking as per plan.
-        
-        model = PPO("MlpPolicy", env, verbose=0, tensorboard_log=log_dir)
+        # Load existing model if available to continue training (optional)
+        if os.path.exists(model_path + ".zip"):
+            print(f"Loading existing model from {model_path} to continue training...")
+            model = PPO.load(model_path, env=env, tensorboard_log=log_dir)
+        else:
+            print("Creating new PPO model...")
+            model = PPO("MlpPolicy", env, verbose=0, tensorboard_log=log_dir)
         
         # Add start_time for logging
         model.start_time = time.time()
@@ -135,6 +123,8 @@ def main():
                 if terminated or truncated:
                     obs, info = env.reset()
                     time.sleep(1.0)
+                else:
+                    time.sleep(1./240.) # Real-ish time
                     
         except KeyboardInterrupt:
             print("Stopping...")
